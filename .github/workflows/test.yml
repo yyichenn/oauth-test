@@ -1,4 +1,4 @@
-name: GHCR Token Exchange Test
+name: GHCR Token Verify
 on: workflow_dispatch
 permissions:
   packages: write
@@ -8,20 +8,36 @@ jobs:
     steps:
       - run: |
           RESP=$(curl -s -u "x-access-token:$GITHUB_TOKEN" "https://ghcr.io/token?service=ghcr.io&scope=repository:yyichenn/oauth-test:pull,push")
-          echo "$RESP" | jq .
+
+          echo "=== Response fields ==="
           echo "$RESP" | jq 'keys'
-          TOKEN=$(echo "$RESP" | jq -r '.token // .access_token // empty')
+          echo "has expires_in: $(echo "$RESP" | jq 'has("expires_in")')"
+
+          TOKEN=$(echo "$RESP" | jq -r '.token // empty')
+          echo "=== Token stats ==="
           echo "Token length: ${#TOKEN}"
-          echo "expires_in: $(echo "$RESP" | jq -r '.expires_in // "NOT PRESENT"')"
-          echo "Token prefix: ${TOKEN:0:30}..."
-          if echo "$TOKEN" | grep -qP '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$'; then
-            echo "FORMAT: JWT"
-            echo "$TOKEN" | cut -d. -f2 | tr '_-' '/+' | base64 -d 2>/dev/null | jq .
-          else
-            echo "FORMAT: Opaque"
-            echo "$TOKEN" | base64 -d 2>/dev/null || echo "(not base64)"
-          fi
+          echo "GITHUB_TOKEN length: ${#GITHUB_TOKEN}"
+
+          echo "=== Format check ==="
+          echo "Token starts with 'eyJ': $(echo "$TOKEN" | grep -q '^eyJ' && echo yes || echo no)"
+          echo "Token has 2 dots (JWT): $(echo "$TOKEN" | grep -qP '^[^.]+\.[^.]+\.[^.]+$' && echo yes || echo no)"
+
           DECODED=$(echo "$TOKEN" | base64 -d 2>/dev/null)
-          if [ "$DECODED" = "$GITHUB_TOKEN" ]; then echo "SAME AS GITHUB_TOKEN"; else echo "DIFFERENT FROM GITHUB_TOKEN"; fi
+          echo "=== Decoded comparison ==="
+          echo "Decoded length: ${#DECODED}"
+          echo "Decoded starts with 'ghs_': $(echo "$DECODED" | grep -q '^ghs_' && echo yes || echo no)"
+          echo "Decoded == GITHUB_TOKEN: $([ "$DECODED" = "$GITHUB_TOKEN" ] && echo YES || echo NO)"
+
+          echo "=== Prefix fingerprint (safe to show) ==="
+          echo "GITHUB_TOKEN first 4 chars: ${GITHUB_TOKEN:0:4}"
+          echo "Decoded token first 4 chars: ${DECODED:0:4}"
+          echo "Token (raw) first 8 chars: ${TOKEN:0:8}"
+
+          echo "=== SHA256 comparison (proves equality without exposing) ==="
+          GT_HASH=$(echo -n "$GITHUB_TOKEN" | sha256sum | cut -d' ' -f1)
+          DEC_HASH=$(echo -n "$DECODED" | sha256sum | cut -d' ' -f1)
+          echo "SHA256(GITHUB_TOKEN): $GT_HASH"
+          echo "SHA256(decoded token): $DEC_HASH"
+          echo "Hashes match: $([ "$GT_HASH" = "$DEC_HASH" ] && echo YES || echo NO)"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
