@@ -1,0 +1,27 @@
+name: GHCR Token Exchange Test
+on: workflow_dispatch
+permissions:
+  packages: write
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          RESP=$(curl -s -u "x-access-token:$GITHUB_TOKEN" "https://ghcr.io/token?service=ghcr.io&scope=repository:yyichenn/oauth-test:pull,push")
+          echo "$RESP" | jq .
+          echo "$RESP" | jq 'keys'
+          TOKEN=$(echo "$RESP" | jq -r '.token // .access_token // empty')
+          echo "Token length: ${#TOKEN}"
+          echo "expires_in: $(echo "$RESP" | jq -r '.expires_in // "NOT PRESENT"')"
+          echo "Token prefix: ${TOKEN:0:30}..."
+          if echo "$TOKEN" | grep -qP '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$'; then
+            echo "FORMAT: JWT"
+            echo "$TOKEN" | cut -d. -f2 | tr '_-' '/+' | base64 -d 2>/dev/null | jq .
+          else
+            echo "FORMAT: Opaque"
+            echo "$TOKEN" | base64 -d 2>/dev/null || echo "(not base64)"
+          fi
+          DECODED=$(echo "$TOKEN" | base64 -d 2>/dev/null)
+          if [ "$DECODED" = "$GITHUB_TOKEN" ]; then echo "SAME AS GITHUB_TOKEN"; else echo "DIFFERENT FROM GITHUB_TOKEN"; fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
